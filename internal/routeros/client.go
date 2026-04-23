@@ -97,6 +97,27 @@ func (c *Client) RemovePeer(leaseID string) error {
 	return err
 }
 
+// ListPeers は wg-home 上の lease:* comment を持つ peer の lease ID 一覧を返す。
+// DB と RouterOS 側の不整合 (orphan peer) を検出するための reconciliation で使用する。
+func (c *Client) ListPeers() ([]string, error) {
+	cmd := fmt.Sprintf(
+		`:foreach p in=[/interface/wireguard/peers/find where interface="%s" comment~"^lease:"] do={:put [/interface/wireguard/peers/get $p comment]}`,
+		c.wgIface,
+	)
+	out, err := c.exec(cmd)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "lease:") {
+			ids = append(ids, strings.TrimPrefix(line, "lease:"))
+		}
+	}
+	return ids, nil
+}
+
 // Ping はRouterOSへのSSH疎通を確認する。
 func (c *Client) Ping() error {
 	_, err := c.exec(":put ok")
