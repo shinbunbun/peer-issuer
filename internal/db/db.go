@@ -28,10 +28,21 @@ func Open(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("create db directory: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", path)
+	// _txlock=immediate で db.Begin() を BEGIN IMMEDIATE にし、
+	// トランザクション開始時に write ロックを取得する。これにより
+	// read→write のロック昇格（busy_timeout が無視され即 SQLITE_BUSY になる
+	// デッドロック回避パス）を避け、書き込み競合は busy_timeout で待てるようにする。
+	dsn := fmt.Sprintf("file:%s?_txlock=immediate", path)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
+
+	// 単一コネクションに直列化する。lease 作成ハンドラと cleaner goroutine が
+	// 別コネクションで同時に書き込むと SQLITE_BUSY が発生しうるため、
+	// SQLite への全アクセスを 1 コネクションに集約して競合自体を無くす。
+	// (CI peer 発行は低トラフィックなのでスループット低下は問題にならない)
+	db.SetMaxOpenConns(1)
 
 	// SQLite のパフォーマンスと安全性の設定
 	pragmas := []string{

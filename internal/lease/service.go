@@ -75,17 +75,13 @@ func (s *Service) Create(clientPubkey string, ttlSeconds int, meta map[string]st
 		metaJSON = []byte("{}")
 	}
 
-	// BEGIN IMMEDIATE で排他ロック
+	// DSN の _txlock=immediate により BEGIN IMMEDIATE 相当となり、
+	// ここで write ロックを取得する（read→write 昇格を起こさない）。
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
-
-	// IMMEDIATE ロック取得
-	if _, err := tx.Exec("SELECT 1"); err != nil {
-		return nil, fmt.Errorf("acquire lock: %w", err)
-	}
 
 	// 期限切れ lease を先に掃除
 	if _, err := tx.Exec("DELETE FROM leases WHERE expires_at <= unixepoch()"); err != nil {
